@@ -46,6 +46,7 @@ THE SOFTWARE.
 import time,sys
 import RPi.GPIO as GPIO
 import smbus
+from plasmoid.modules import PlasmoidModule
 
 # this device has two I2C addresses
 DISPLAY_RGB_ADDR = 0x62
@@ -175,3 +176,21 @@ if __name__=="__main__":
     setRGB(0,255,0)
     setText("Bye bye, this should wrap onto next line")
 
+class GroveRGB(PlasmoidModule):
+    def push_to_grove_lcd(self, mosq, obj, msg):
+        print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To Grove")
+        if self.has_lcd:
+            LCD.setText(msg.payload)
+
+    def set_grove_rgb(self, mosq, obj, msg):
+        print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To Grove")
+        if self.has_lcd:
+            try:
+                r,g,b = map(int,msg.payload.split(','))
+                LCD.setRGB(r,g,b)
+            except (ValueError, AttributeError):
+                # Noone gives a shit if you can't do it properly
+                if msg.payload in lcd_rgb_colourmap:
+                    LCD.setRGB(*lcd_rgb_colourmap[msg.payload])
+                else:
+                    pass
