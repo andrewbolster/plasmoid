@@ -35,6 +35,7 @@ class PlasmoidMQTTHandler:
 
     MQTTServer = "bolster.online"
     clientName = "Plasmoid Bridge"
+    pilite_bar = []
 
     def __init__(self):
         self.queue = Queue.Queue()
@@ -56,6 +57,7 @@ class PlasmoidMQTTHandler:
         self.client.on_message = self.on_message
         self.callbacks = {
             "pilite/text": self.push_to_pilite,
+            "pilite/bar": self.update_pilite_bar,
             "grove/text": self.push_to_grove_lcd,
             "grove/scroll": self.scroll_to_grove_lcd,
             "grove/rgb": self.set_grove_rgb
@@ -106,16 +108,23 @@ class PlasmoidMQTTHandler:
     def main(self):
         # loop
         rc = 0
+        rc_dict = {
+        0: "Connection successful",
+        1: "Connection refused - incorrect protocol version",
+        2: "Connection refused - invalid client identifier",
+        3: "Connection refused - server unavailable",
+        4: "Connection refused - bad username or password",
+        5: "Connection refused - not authorised"
+        }
         try:
-            while rc == 0:
+            while rc == 0 or rc == 3:
                 # mqtt stuff
                 rc = self.client.loop()
                 # serial stuff
                 self.decodeLLAP()
-            # we lost the network to mqtt
-            print("We lost MQTT")
-        except KeyboardInterrupt:
-            print("Keyboard Quit")
+            print rc_dict[rc]
+        except (KeyboardInterrupt, SystemExit):
+            print("Quit")
             self.disconnect_all()
 
     def disconnect_all(self):
@@ -162,6 +171,26 @@ class PlasmoidMQTTHandler:
                 LCD.setRGB(*lcd_rgb_colourmap[msg.payload])
             else:
                 pass
+
+    def update_pilite_bar(self, mosq, obj,msg):
+        print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To PiLiteBar")
+        if len(self.pilite_bar)>14:
+            self.pilite_bar.pop(0)
+        try:
+            self.pilite_bar.append(msg.payload)
+            self.set_pilite_bar()
+        except:
+            print("That didn't work; {}".format(msg))
+
+    def set_pilite_bar(self):
+        print self.pilite_bar
+        for i,v in enumerate(self.pilite_bar):
+            s = "$$$B{},{}\r".format(i+1,v)
+            print s
+            self.s.write(s)
+
+
+
 
     def scroll_to_grove_lcd(self, mosq, obj, msg):
         print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To Grove")
