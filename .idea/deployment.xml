@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="bolsterpi1.local">
+  <component name="PublishConfigData" autoUpload="Always" serverName="sensepi.local">
     <serverData>
-      <paths name="bolsterpi1.local">
+      <paths name="sensepi.local">
         <serverdata>
           <mappings>
             <mapping deploy="/home/bolster/src/plasmoid" local="$PROJECT_DIR$" web="/" />
-            <mapping deploy="/home/bolster/src/grove-lcd" local="$PROJECT_DIR$/../grove-lcd" web="/" />
           </mappings>
         </serverdata>
       </paths>

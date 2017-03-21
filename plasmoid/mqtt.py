@@ -1,15 +1,13 @@
 #!/usr/bin/env python
 
 
-# mqtt to PiLite
-# dpslwk 24/06/2013
-
 
 import paho.mqtt.client as MQTT
-import plasmoid.grove_rgb_lcd as LCD
+
 import os, sys, time, Queue
 import serial, threading
 import itertools
+from time import time, sleep
 
 lcd_rgb_colourmap={
     'base': [64,128,255],
@@ -25,19 +23,27 @@ lcd_rgb_colourmap.update({
     'debug': lcd_rgb_colourmap['purple']
 })
 
+LCD=None
+
+def LCD(*args,**kwargs):
+    raise NotImplementedError("No LCD Configured!")
 
 class PlasmoidMQTTHandler:
-    # publish from Pi-LITE topic
-    p_rx = "pilite/from"
-
-    # serial port for URF
-    port = "/dev/ttyAMA0"
 
     MQTTServer = "bolster.online"
     clientName = "Plasmoid Bridge"
     pilite_bar = []
 
-    def __init__(self):
+    production_period = 10
+    sample_period = 0.1
+    production_counter = production_period
+
+    def __init__(self, modules=[]):
+        # publish from Pi-LITE topic
+        self.p_rx = "pilite/from"
+
+        # serial port for URF
+        self.port = "/dev/ttyAMA0"
         self.queue = Queue.Queue()
         self.s = serial.Serial()
         self.t = threading.Thread(target=self.run)
@@ -46,23 +52,19 @@ class PlasmoidMQTTHandler:
         self.s.timeout = 0
         self.connect()
 
-        # Setup Grove LCD Connection
-        LCD.setRGB(64,64,64)
-        LCD.setText("")
+        self.callbacks = {}
+        self.modules=[]
 
         # mqtt setup on
         self.client = MQTT.Client(self.clientName)
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
-        self.callbacks = {
-            "pilite/text": self.push_to_pilite,
-            "pilite/bar": self.update_pilite_bar,
-            "grove/text": self.push_to_grove_lcd,
-            "grove/scroll": self.scroll_to_grove_lcd,
-            "grove/rgb": self.set_grove_rgb
-        }
+        for module in modules:
+            self.add_module(module)
+
         for topic,callback in self.callbacks.items():
+            print("Adding Callback {}:{}".format(topic,callback))
             self.client.message_callback_add(topic, callback)
 
         self.client.connect(self.MQTTServer)
@@ -71,6 +73,10 @@ class PlasmoidMQTTHandler:
 
     def __del__(self):
         self.disconnect_all()
+
+    def add_module(self, module):
+        self.callbacks.update(module.callbacks)
+        self.modules.append(module)
 
     def connect(self):
         if self.s.isOpen() == False:
@@ -92,12 +98,20 @@ class PlasmoidMQTTHandler:
             self.s.close()
 
     def run(self):
+        t_last_prod = time()+self.production_period
         while self.s.isOpen() == True:
             if self.s.inWaiting():
                 msg = self.s.read()
                 print(msg)
                 self.queue.put(msg)
-            time.sleep(0.1)  # may need adjusting
+            sleep(0.1)  # may need adjusting
+            if t_last_prod < round(time() - self.production_period):
+                for m in self.modules:
+                    for topic, payload in m.check_producers():
+                        if topic is not None:
+                            self.client.publish(topic, payload)
+                t_last_prod = time()
+
 
     def sendLLAP(self, llapMsg):
         while len(llapMsg) < 12:
@@ -156,21 +170,7 @@ class PlasmoidMQTTHandler:
         print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To PiLite")
         self.s.write(msg.payload)
 
-    def push_to_grove_lcd(self, mosq, obj, msg):
-        print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To Grove")
-        LCD.setText(msg.payload)
 
-    def set_grove_rgb(self, mosq, obj, msg):
-        print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To Grove")
-        try:
-            r,g,b = map(int,msg.payload.split(','))
-            LCD.setRGB(r,g,b)
-        except (ValueError, AttributeError):
-            # Noone gives a shit if you can't do it properly
-            if msg.payload in lcd_rgb_colourmap:
-                LCD.setRGB(*lcd_rgb_colourmap[msg.payload])
-            else:
-                pass
 
     def update_pilite_bar(self, mosq, obj,msg):
         print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To PiLiteBar")
@@ -194,7 +194,9 @@ class PlasmoidMQTTHandler:
 
     def scroll_to_grove_lcd(self, mosq, obj, msg):
         print("Message received on topic " + msg.topic + " with QoS " + str(msg.qos) + " and payload " + msg.payload + " To Grove")
-        LCD.scrollableTopLineText(msg.payload)
+
+        if self.has_lcd:
+            LCD.scrollableTopLineText(msg.payload)
 
     def decodeLLAP(self):
         if not self.queue.empty():
